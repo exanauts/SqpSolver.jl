@@ -1,5 +1,8 @@
 # SQP.jl
 
+![Run tests](https://github.com/exanauts/SQP.jl/workflows/Run%20tests/badge.svg?branch=master)
+[![codecov](https://codecov.io/gh/exanauts/SQP.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/exanauts/SQP.jl)
+
 This is a Julia package that implements sequantial quadratic programming algorithms for continuous nonlinear optimization.
 
 ## Installation
