@@ -3,7 +3,7 @@
 """
 abstract type AbstractSqpTrOptimizer <: AbstractSqpOptimizer end
 
-mutable struct SqpTR{T,TD} <: AbstractSqpTrOptimizer
+mutable struct SqpTR{T,TD,TI} <: AbstractSqpTrOptimizer
     @sqp_fields
 
     # directions for multipliers
@@ -23,8 +23,8 @@ mutable struct SqpTR{T,TD} <: AbstractSqpTrOptimizer
 
     step_acceptance::Bool
 
-    function SqpTR(problem::Model{T,TD}) where {T,TD<:AbstractArray{T}}
-        sqp = new{T,TD}()
+    function SqpTR(problem::Model{T,TD}, TI = Vector{Int}) where {T,TD<:AbstractArray{T}}
+        sqp = new{T,TD,TI}()
         sqp.problem = problem
         sqp.x = deepcopy(problem.x)
         sqp.p = zeros(T, problem.n)
@@ -37,16 +37,17 @@ mutable struct SqpTR{T,TD} <: AbstractSqpTrOptimizer
         sqp.E = TD(undef, problem.m)
         sqp.dE = TD(undef, length(problem.j_str))
 
-        sqp.j_row = Vector{Int}(undef, length(problem.j_str))
-        sqp.j_col = Vector{Int}(undef, length(problem.j_str))
+        # FIXME: Replace Vector{Int} with TI?
+        sqp.j_row = TI(undef, length(problem.j_str))
+        sqp.j_col = TI(undef, length(problem.j_str))
         for i = 1:length(problem.j_str)
             sqp.j_row[i] = Int(problem.j_str[i][1])
             sqp.j_col[i] = Int(problem.j_str[i][2])
         end
         sqp.Jacobian =
             sparse(sqp.j_row, sqp.j_col, ones(length(sqp.j_row)), problem.m, problem.n)
-        sqp.h_row = Vector{Int}(undef, length(problem.h_str))
-        sqp.h_col = Vector{Int}(undef, length(problem.h_str))
+        sqp.h_row = TI(undef, length(problem.h_str))
+        sqp.h_col = TI(undef, length(problem.h_str))
         for i = 1:length(problem.h_str)
             sqp.h_row[i] = Int(problem.h_str[i][1])
             sqp.h_col[i] = Int(problem.h_str[i][2])
