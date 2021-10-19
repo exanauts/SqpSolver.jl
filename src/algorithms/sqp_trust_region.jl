@@ -230,7 +230,7 @@ This function assumes that the first `sqp.problem.num_linear_constraints` constr
 """
 function violation_of_linear_constraints(sqp::AbstractSqpTrOptimizer, x::TD)::T where {T, TD <: AbstractVector{T}}
     # evaluate constraints
-    sqp.problem.eval_g(sqp.x, sqp.E)
+    sqp.problem.eval_g(x, sqp.E)
 
     lpviol = 0.0
     for i = 1:sqp.problem.num_linear_constraints
