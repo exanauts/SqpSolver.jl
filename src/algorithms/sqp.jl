@@ -14,7 +14,7 @@ macro def(name, definition)
 end
 
 @def sqp_fields begin
-    problem::Model{T,TD} # problem data
+    problem::AbstractSqpModel # problem data
 
     x::TD # primal solution
     p::TD # search direction
@@ -30,12 +30,12 @@ end
     E::TD # constraint evaluation
     dE::TD # Jacobian
 
-    j_row::Vector{Int} # Jacobian matrix row index
-    j_col::Vector{Int} # Jacobian matrix column index
+    j_row::TI # Jacobian matrix row index
+    j_col::TI # Jacobian matrix column index
     Jacobian::AbstractMatrix{T} # Jacobian matrix
 
-    h_row::Vector{Int} # Hessian matrix row index
-    h_col::Vector{Int} # Hessian matrix column index
+    h_row::TI # Hessian matrix row index
+    h_col::TI # Hessian matrix column index
     h_val::TD # Hessian matrix values
     Hessian::Union{Nothing,AbstractMatrix{T}} # Hessian matrix
 
@@ -89,7 +89,7 @@ function eval_functions!(sqp::AbstractSqpOptimizer)
     sqp.problem.eval_g(sqp.x, sqp.E)
     eval_Jacobian!(sqp)
     if !isnothing(sqp.problem.eval_h)
-        sqp.problem.eval_h(sqp.x, :eval, [], [], 1.0, sqp.lambda, sqp.h_val)
+        sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
         fill!(sqp.Hessian.nzval, 0.0)
         for (i, v) in enumerate(sqp.h_val)
             if sqp.h_col[i] == sqp.h_row[i]
@@ -108,7 +108,7 @@ end
 Evaluate Jacobian matrix.
 """
 function eval_Jacobian!(sqp::AbstractSqpOptimizer)
-    sqp.problem.eval_jac_g(sqp.x, :eval, [], [], sqp.dE)
+    sqp.problem.eval_jac_g(sqp.x, :eval, sqp.j_row, sqp.j_col, sqp.dE)
     fill!(sqp.Jacobian.nzval, 0.0)
     for (i, v) in enumerate(sqp.dE)
         sqp.Jacobian[sqp.j_row[i],sqp.j_col[i]] += v

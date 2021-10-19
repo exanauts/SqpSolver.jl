@@ -1,4 +1,6 @@
-mutable struct Model{T,TD}
+abstract type AbstractSqpModel end
+
+mutable struct Model{T,TD} <: AbstractSqpModel
     n::Int  # Num vars
     m::Int  # Num cons
     x::TD  # Starting and final solution
