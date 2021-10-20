@@ -89,23 +89,14 @@ function optimize!(model::Model)
     return nothing
 end
 
-function eval_f(model::Model{T,TD}, x::TD)::T where {T, TD<:AbstractArray{T}}
-    return model.eval_f(x)
-end
-
-function eval_g!(model::Model{T,TD}, x::TD, g::TD) where {T, TD<:AbstractArray{T}}
-    model.eval_g(x, g)
-    return
-end
-
-function add_statistic(model::Model, name::String, value)
+function add_statistic(model::AbstractSqpModel, name::String, value)
     if model.parameters.StatisticsFlag == 0
         return
     end
     model.statistics[name] = value
 end
 
-function add_statistics(model::Model, name::String, value::T) where T
+function add_statistics(model::AbstractSqpModel, name::String, value::T) where T
     if model.parameters.StatisticsFlag == 0
         return
     end
