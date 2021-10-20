@@ -88,6 +88,7 @@ function eval_functions!(sqp::AbstractSqpOptimizer)
     sqp.problem.eval_grad_f(sqp.x, sqp.df)
     sqp.problem.eval_g(sqp.x, sqp.E)
     eval_Jacobian!(sqp)
+    # print_matrix(sqp.Jacobian)
     if !isnothing(sqp.problem.eval_h)
         sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
         fill!(sqp.Hessian.nzval, 0.0)
@@ -128,8 +129,9 @@ norm_violations(sqp::AbstractSqpOptimizer, p = 1) = norm_violations(
 
 function norm_violations(sqp::AbstractSqpOptimizer, x::TD, p = 1) where {T, TD<:AbstractArray{T}}
     fill!(sqp.tmpE, 0.0)
+    sqp.problem.eval_g(x, sqp.tmpE)
     return norm_violations(
-        sqp.problem.eval_g(x, sqp.tmpE), sqp.problem.g_L, sqp.problem.g_U, 
+        sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U, 
         x, sqp.problem.x_L, sqp.problem.x_U, 
         p
     )
@@ -170,8 +172,8 @@ function compute_phi(sqp::AbstractSqpOptimizer, x::TD, α::T, p::TD) where {T,TD
     f = sqp.f
     sqp.tmpE .= sqp.E
     if α > 0.0
-        f = eval_f(sqp.problem, sqp.tmpx)
-        eval_g!(sqp.problem, sqp.tmpx, sqp.tmpE)
+        f = sqp.problem.eval_f(sqp.tmpx)
+        sqp.problem.eval_g(sqp.tmpx, sqp.tmpE)
     end
     if sqp.feasibility_restoration
         return norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U, sqp.tmpx, sqp.problem.x_L, sqp.problem.x_U, 1)

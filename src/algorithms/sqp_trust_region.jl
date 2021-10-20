@@ -150,7 +150,7 @@ function run!(sqp::AbstractSqpTrOptimizer)
                 end
                 break
             else
-                @info "Feasibility restoration starts..."
+                @info "Feasibility restoration starts... (status: $(sqp.sub_status))"
                 # println("Feasibility restoration ($(sqp.sub_status), |p| = $(norm(sqp.p, Inf))) begins.")
                 sqp.feasibility_restoration = true
                 print(sqp)
