@@ -214,7 +214,7 @@ function sub_optimize_lp(
     mult_x_U = zeros(T, n)
     mult_x_L = zeros(T, n)
 
-    if status ∈ [MOI.OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+    if status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
         Xsol .= JuMP.value.(x)
 
         # extract the multipliers to constraints
@@ -516,7 +516,7 @@ function collect_solution!(qp::QpJuMP{T,Tv,Tm}, status) where {T,Tv,Tm}
     mult_x_U = zeros(T, n)
     mult_x_L = zeros(T, n)
 
-    if status ∈ [MOI.OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+    if status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
         Xsol .= JuMP.value.(qp.x)
         for (i, slacks) in qp.slack_vars
             p_slack[i] = JuMP.value.(slacks)
