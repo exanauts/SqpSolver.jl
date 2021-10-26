@@ -98,6 +98,9 @@ Run the line-search SQP algorithm
 """
 function run!(sqp::AbstractSqpTrOptimizer)
 
+    sqp.μ = sqp.options.init_mu
+    sqp.Δ = sqp.options.tr_size
+
     sqp.start_time = time()
 
     if sqp.options.OutputFlag == 0
@@ -138,7 +141,7 @@ function run!(sqp::AbstractSqpTrOptimizer)
         QP_time = @elapsed compute_step!(sqp)
         add_statistics(sqp.problem, "QP_time", QP_time)
 
-        if sqp.sub_status ∈ [MOI.OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+        if sqp.sub_status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
             # do nothing
         elseif sqp.sub_status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
             if sqp.feasibility_restoration == true
@@ -185,8 +188,8 @@ function run!(sqp::AbstractSqpTrOptimizer)
         end
 
         if sqp.prim_infeas <= sqp.options.tol_infeas &&
-           sqp.compl <= sqp.options.tol_residual &&
-           norm(sqp.p, Inf) <= sqp.options.tol_direction
+           sqp.compl <= sqp.options.tol_residual #&&
+        #    norm(sqp.p, Inf) <= sqp.options.tol_direction
             if sqp.feasibility_restoration
                 sqp.feasibility_restoration = false
                 sqp.iter += 1
