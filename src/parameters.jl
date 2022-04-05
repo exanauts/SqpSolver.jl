@@ -19,7 +19,7 @@ Base.@kwdef mutable struct Parameters
     tol_infeas::Float64 = 1.e-6     # tolerance for constraint violation
     max_iter::Int = 1000            # Defines the maximum number of iterations
     time_limit::Float64 = Inf       # Defines the time limit for the solver. (This hasn't been implemented yet)
-    init_mu::Float64 = 1.e+2        # initial mu value
+    init_mu::Float64 = 1.e+4        # initial mu value
     max_mu::Float64 = 1.e+10        # maximum mu value allowed
     rho::Float64 = 0.8              # parameter in (0,1) used for updating merit function penalty
     eta::Float64 = 0.4              # descent step test parameter defined in (0,0.5)
