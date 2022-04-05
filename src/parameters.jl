@@ -26,7 +26,7 @@ Base.@kwdef mutable struct Parameters
     tau::Float64 = 0.9              # line search step decrease parameter defined in (0,1)
     min_alpha::Float64 = 1.e-6      # minimum step size
     tr_size::Float64 = 10.          # trust region size
-    use_soc::Bool = true
+    use_soc::Bool = false           # use second-order correction
 end
 
 function get_parameter(params::Parameters, pname::String)
