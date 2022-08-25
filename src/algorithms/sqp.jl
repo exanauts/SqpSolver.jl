@@ -19,6 +19,7 @@ end
     x::TD # primal solution
     p::TD # search direction
     p_soc::TD # direction after SOC
+    p_slack::Dict{Int,TD} # search direction at feasibility restoration phase
     lambda::TD # Lagrangian dual multiplier
     mult_x_L::TD # reduced cost for lower bound
     mult_x_U::TD # reduced cost for upper bound
@@ -87,6 +88,7 @@ function eval_functions!(sqp::AbstractSqpOptimizer)
     sqp.problem.eval_grad_f(sqp.x, sqp.df)
     sqp.problem.eval_g(sqp.x, sqp.E)
     eval_Jacobian!(sqp)
+    # print_matrix(sqp.Jacobian)
     if !isnothing(sqp.problem.eval_h)
         sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
         fill!(sqp.Hessian.nzval, 0.0)
