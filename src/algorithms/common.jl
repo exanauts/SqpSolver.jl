@@ -52,26 +52,16 @@ end
 Compute the normalized constraint violation
 """
 function norm_violations(
-    E::Tv, g_L::Tv, g_U::Tv, x::Tv, x_L::Tv, x_U::Tv, p = 1
+    E::Tv, g_L::Tv, g_U::Tv
 ) where {T, Tv <: AbstractArray{T}}
-
     m = length(E)
-    n = length(x)
-    viol = Tv(undef, m+n)
-    fill!(viol, 0.0)
+    viol = 0.0
     for i = 1:m
         if E[i] > g_U[i]
-            viol[i] = E[i] - g_U[i]
+            viol += E[i] - g_U[i]
         elseif E[i] < g_L[i]
-            viol[i] = g_L[i] - E[i]
+            viol += g_L[i] - E[i]
         end
     end
-    for j = 1:n
-        if x[j] > x_U[j]
-            viol[m+j] = x[j] - x_U[j]
-        elseif x[j] < x_L[j]
-            viol[m+j] = x_L[j] - x[j]
-        end
-    end
-    return norm(viol, p)
+    return viol
 end

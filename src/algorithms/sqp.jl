@@ -17,6 +17,7 @@ end
     problem::AbstractSqpModel # problem data
 
     x::TD # primal solution
+    xnew::TD # primal solution
     p::TD # search direction
     p_soc::TD # direction after SOC
     lambda::TD # Lagrangian dual multiplier
@@ -25,9 +26,13 @@ end
 
     # Evaluations at `x`
     f::T # objective function
+    fnew::T # objective function
     df::TD # gradient
     E::TD # constraint evaluation
+    Enew::TD # constraint evaluation
     dE::TD # Jacobian
+    hc::T # constraint violation
+    hcnew::T # constraint violation
 
     j_row::TI # Jacobian matrix row index
     j_col::TI # Jacobian matrix column index
@@ -87,18 +92,7 @@ function eval_functions!(sqp::AbstractSqpOptimizer)
     sqp.problem.eval_grad_f(sqp.x, sqp.df)
     sqp.problem.eval_g(sqp.x, sqp.E)
     eval_Jacobian!(sqp)
-    if !isnothing(sqp.problem.eval_h)
-        sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
-        fill!(sqp.Hessian.nzval, 0.0)
-        for (i, v) in enumerate(sqp.h_val)
-            if sqp.h_col[i] == sqp.h_row[i]
-                sqp.Hessian[sqp.h_row[i],sqp.h_col[i]] += v
-            else
-                sqp.Hessian[sqp.h_row[i],sqp.h_col[i]] += v
-                sqp.Hessian[sqp.h_col[i],sqp.h_row[i]] += v
-            end
-        end
-    end
+    eval_Hessian!(sqp)
 end
 
 """
@@ -115,24 +109,34 @@ function eval_Jacobian!(sqp::AbstractSqpOptimizer)
 end
 
 """
+    eval_Hessian!
+
+Evaluate Hessian matrix.
+"""
+function eval_Hessian!(sqp::AbstractSqpOptimizer)
+    if !isnothing(sqp.problem.eval_h)
+        sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
+        fill!(sqp.Hessian.nzval, 0.0)
+        for (i, v) in enumerate(sqp.h_val)
+            if sqp.h_col[i] == sqp.h_row[i]
+                sqp.Hessian[sqp.h_row[i],sqp.h_col[i]] += v
+            else
+                sqp.Hessian[sqp.h_row[i],sqp.h_col[i]] += v
+                sqp.Hessian[sqp.h_col[i],sqp.h_row[i]] += v
+            end
+        end
+    end
+end
+
+"""
     norm_violations
 
 Compute the normalized constraint violation
 """
-norm_violations(sqp::AbstractSqpOptimizer, p = 1) = norm_violations(
-    sqp.E, sqp.problem.g_L, sqp.problem.g_U, 
-    sqp.x, sqp.problem.x_L, sqp.problem.x_U, 
-    p
-)
-
 function norm_violations(sqp::AbstractSqpOptimizer, x::TD, p = 1) where {T, TD<:AbstractArray{T}}
     fill!(sqp.tmpE, 0.0)
     sqp.problem.eval_g(x, sqp.tmpE)
-    return norm_violations(
-        sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U, 
-        x, sqp.problem.x_L, sqp.problem.x_U, 
-        p
-    )
+    return norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U)
 end
 
 """
@@ -174,9 +178,9 @@ function compute_phi(sqp::AbstractSqpOptimizer, x::TD, α::T, p::TD) where {T,TD
         sqp.problem.eval_g(sqp.tmpx, sqp.tmpE)
     end
     if sqp.feasibility_restoration
-        return norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U, sqp.tmpx, sqp.problem.x_L, sqp.problem.x_U, 1)
+        return norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U)
     else
-        return f + sqp.μ * norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U, sqp.tmpx, sqp.problem.x_L, sqp.problem.x_U, 1)
+        return f + sqp.μ * norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U)
     end
 end
 

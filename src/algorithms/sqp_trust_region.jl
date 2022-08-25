@@ -29,7 +29,6 @@ mutable struct SqpTR{T,TD,TI} <: AbstractSqpTrOptimizer
         sqp.x = deepcopy(problem.x)
         sqp.p = zeros(T, problem.n)
         sqp.p_soc = zeros(T, problem.n)
-        sqp.p_slack = Dict()
         sqp.lambda = zeros(T, problem.m)
         sqp.mult_x_L = zeros(T, problem.n)
         sqp.mult_x_U = zeros(T, problem.n)
@@ -109,18 +108,119 @@ function run!(sqp::AbstractSqpTrOptimizer)
 
     print_header(sqp)
 
-    # Find the initial point feasible to linear and bound constraints
-    lpviol = violation_of_linear_constraints(sqp, sqp.x)
-    if lpviol > sqp.options.tol_infeas
-        @info "Initial point not feasible to linear constraints..."
-        sub_optimize_lp!(sqp)
+    # TODO: warm start
 
-        print(sqp, "LP")
-    else
-        @info "Initial point feasible to linear constraints..." lpviol
+    # truncate initial x to lie inside simple bounds
+    for i = 1:sqp.problem.n
+        sqp.x[i] = min(sqp.problem.x_U[i], max(sqp.problem.x_L[i], sqp.x[i]))
     end
 
+    # evaluate the constraints at the initial point
+    sqp.problem.eval_g(sqp.x, sqp.E)
+    sqp.problem.eval_grad_f(sqp.x, sqp.df)
+    eval_Jacobian!(sqp)
+
+    # ensure that the initial point is feasible wrt linear c/s
+    lpviol = violation_of_linear_constraints(sqp, sqp.x)
+    if lpviol > sqp.options.tol_infeas
+        sqp.f = sqp.problem.eval_f(sqp.x)
+        sqp.prim_infeas = norm_violations(sqp.E, sqp.problem.g_L, sqp.problem.g_U)
+        sqp.phi = sqp.f + sqp.prim_infeas
+        print(sqp, "L-INF")
+        @info "Initial point not feasible in linear c/s..."
+        @info "...solving a phase 1 problem for linear c/s"
+        @info "...setting Hessian = I and gradient = 0"
+
+        sub_optimize_lp!(sqp)
+
+        if sqp.sub_status == :Optimal
+            sqp.x .+= sqp.p
+    
+            sqp.f = sqp.problem.eval_f(sqp.x)
+            sqp.problem.eval_g(sqp.x, sqp.E)
+            sqp.prim_infeas = norm_violations(sqp.E, sqp.problem.g_L, sqp.problem.g_U)
+    
+            # update QP
+            sqp.problem.eval_grad_f(sqp.x, sqp.df)
+            eval_Jacobian!(sqp)
+
+            sqp.lambda .= sqp.problem.mult_g
+            # TODO: combine mult_x_U and mult_x_L
+            sqp.mult_x_U .= sqp.problem.mult_x_U
+            sqp.mult_x_L .= sqp.problem.mult_x_L
+            eval_Hessian!(sqp)
+    
+            @info "Feasible point for linear c/s found"
+            @info "f(x), h(c(x)) = $(sqp.f), $(sqp.prim_infeas)"
+        elseif sqp.sub_status == :Infeasible
+            @info "Linear c/s are inconsistent: STOP"
+            # TODO: return
+        else
+            @info "Unexpected status: $(sqp.sub_status)"
+            # TODO: return
+        end
+    else
+        @info "Initial point is feasible wrt linear c/s"
+        sqp.f = sqp.problem.eval_f(sqp.x)
+        eval_Hessian!(sqp)
+        sqp.prim_infeas = norm_violations(sqp.E, sqp.problem.g_L, sqp.problem.g_U)
+    end
+
+    sqp.μ = 1.0
+    sqp.phi = sqp.f + sqp.prim_infeas
+
+    # If filter were used, this is the place to initialize the filter.
+
+    print(sqp, "START")
+
     while true
+
+        # set up and solve QP subproblem
+        sub_optimize!(sqp)
+        if sqp.optimizer.status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+            d_norm = norm(sqp.optimizer.xsol, Inf)
+            # update x, f(x+d), c(x+d)
+            sqp.x .+= sqp.optimizer.xsol
+            sqp.f = sqp.problem.eval_f(sqp.x)
+            sqp.problem.eval_g(sqp.x, sqp.E)
+            # compute constraint violation
+            sqp.prim_infeas = norm_violations(sqp.E, sqp.problem.g_L, sqp.problem.g_U)
+
+            penalty_estimate!(sqp)
+            check_accept!(sqp)
+
+            if d_norm < sqp.options.tol_direction
+                sqp.step_acceptance = true
+                @info "Zero step from QP: accept"
+            end
+            if sqp.step_acceptance
+                @info "Step acceptable to filter, Δ = $(sqp.Δ)"
+            else
+                if sqp.feasibility_restoration
+                    best_phi = sqp.phi
+                    # ...
+                end
+            end
+
+            print(sqp)
+
+            if sqp.step_acceptance == false && sqp.prim_infeas < Inf && sqp.prim_infeas > 0.0
+                @info "Step not accepted, try SOC steps"
+                while true
+                    sub_optimize_soc!(sqp)
+                end
+            end
+
+        elseif sqp.optimizer.status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
+            # solve phase I SQP
+        else
+            @info "Unexpected QP status: $(sqp.optimizer.status)"
+            sqp.ret == -3
+            if sqp.prim_infeas <= sqp.options.tol_infeas
+                sqp.ret = 6
+            end
+            break
+        end
 
         # Iteration counter limit
         if terminate_by_iterlimit(sqp)
@@ -132,18 +232,26 @@ function run!(sqp::AbstractSqpTrOptimizer)
         # evaluate function, constraints, gradient, Jacobian
         if sqp.step_acceptance
             eval_functions!(sqp)
-            sqp.prim_infeas = norm_violations(sqp, 1)
+            sqp.prim_infeas = norm_violations(sqp.E, sqp.problem.g_L, sqp.problem.g_U)
             sqp.dual_infeas = KT_residuals(sqp)
             sqp.compl = norm_complementarity(sqp)
         end
+        # @info "iteration status" sqp.f sqp.prim_infeas sqp.compl
+        @debug begin
+            print_vector(sqp.x, "new x values")
+            print_vector(sqp.lambda, "Multipliers")
+        end
+
+        print(sqp)
+        collect_statistics(sqp)
 
         # solve QP subproblem
         QP_time = @elapsed compute_step!(sqp)
         add_statistics(sqp.problem, "QP_time", QP_time)
 
-        if sqp.sub_status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+        if sqp.optimizer.status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
             # do nothing
-        elseif sqp.sub_status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
+        elseif sqp.optimizer.status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
             if sqp.feasibility_restoration == true
                 @info "Failed to find a feasible direction"
                 if sqp.prim_infeas <= sqp.options.tol_infeas
@@ -153,8 +261,8 @@ function run!(sqp::AbstractSqpTrOptimizer)
                 end
                 break
             else
-                @info "Feasibility restoration starts... (status: $(sqp.sub_status))"
-                # println("Feasibility restoration ($(sqp.sub_status), |p| = $(norm(sqp.p, Inf))) begins.")
+                @info "Feasibility restoration starts... (status: $(sqp.optimizer.status))"
+                # println("Feasibility restoration ($(sqp.optimizer.status), |p| = $(norm(sqp.p, Inf))) begins.")
                 sqp.feasibility_restoration = true
                 print(sqp)
                 collect_statistics(sqp)
@@ -173,9 +281,6 @@ function run!(sqp::AbstractSqpTrOptimizer)
             sqp.phi = compute_phi(sqp, sqp.x, 0.0, sqp.p)
         end
 
-        print(sqp)
-        collect_statistics(sqp)
-
         if norm(sqp.p, Inf) <= sqp.options.tol_direction
             if sqp.feasibility_restoration
                 sqp.feasibility_restoration = false
@@ -188,8 +293,8 @@ function run!(sqp::AbstractSqpTrOptimizer)
         end
 
         if sqp.prim_infeas <= sqp.options.tol_infeas &&
-           sqp.compl <= sqp.options.tol_residual #&&
-        #    norm(sqp.p, Inf) <= sqp.options.tol_direction
+           sqp.compl <= sqp.options.tol_residual &&
+           norm(sqp.p, Inf) <= sqp.options.tol_direction
             if sqp.feasibility_restoration
                 sqp.feasibility_restoration = false
                 sqp.iter += 1
@@ -219,6 +324,111 @@ function run!(sqp::AbstractSqpTrOptimizer)
     add_statistic(sqp.problem, "iter", sqp.iter)
 end
 
+function penalty_estimate!(sqp::AbstractSqpTrOptimizer)
+    μ = maximum(10.0 .^ round.(log10.(abs.(sqp.lambda)) .+ 1))
+    sqp.μ = clamp(μ, 1.e-6, 1.e+6)
+    # estimate of l_infty exact penalty function
+    sqp.phi = sqp.f + sqp.μ * sqp.prim_infeas
+end
+
+function bound_shift!(n, m, blo, bup, bl, bu, x, c, cstype, Δ, shift, w, socs = false)
+    if shift > 0.0
+        for i=1:m
+            if cstype[i] == "N"
+                bl[n+i] = blo[n+i] - c[i] - shift
+                bu[n+i] = bup[n+i] - c[i] - shift
+            else
+                bl[n+i] = blo[n+i] - c[i]
+                bu[n+i] = bup[n+i] - c[i]
+            end
+        end
+        if socs
+            @error "bound_shift: STOP"
+        end
+    else
+        if socs
+            for i=1:m
+                bl[n+i] = blo[n+i] - c[i] + w[i]
+                bu[n+i] = bup[n+i] - c[i] + w[i]
+            end
+        else
+            for i=1:m
+                bl[n+i] = blo[n+i] - c[i]
+                bu[n+i] = bup[n+i] - c[i]
+            end
+        end
+    end
+
+    for i=1:n
+        bl[i] = max(blo[i]-x[i], -Δ)
+        bu[i] = min(bup[i]-x[i],  Δ)
+    end
+
+    if shift == 0.0
+        for i=1:m
+            if cstype[i] == "L"
+                if blo[n+i] == bup[n+i]
+                    bu[n+i] = 0.0
+                    bl[n+i] = 0.0
+                else
+                    bu[n+i] = max(bu[n+i], 0.0)
+                    bl[n+i] = min(bl[n+i], 0.0)
+                end
+            end
+        end
+        for i=1:n
+            if blo[i] == bup[i]
+                bu[i] = 0.0
+                bl[i] = 0.0
+            else
+                bu[i] = max(bu[i], 0.0)
+                bl[i] = min(bl[i], 0.0)
+            end
+        end
+    end
+end
+
+function sub_optimize_lp!(sqp::AbstractSqpTrOptimizer)
+    c = zeros(sqp.problem.n)
+    Q = sparse(I, sqp.problem.n, sqp.problem.n)
+    bl = zeros(sqp.problem.n+sqp.problem.m)
+    bu = zeros(sqp.problem.n+sqp.problem.m)
+    bound_shift!(
+        sqp.problem.n, sqp.problem.m,
+        [sqp.problem.x_L; sqp.problem.g_L],
+        [sqp.problem.x_U; sqp.problem.g_U],
+        bl, bu,
+        sqp.x, sqp.E, cstype, sqp.Δ, Inf, sqp.E
+    )
+    QPsolve!(
+        sqp.problem.n,
+        sqp.problem.m,
+        c, Q, sqp.Jacobian, bl, bu,
+        sqp.p, sqp.r, sqp.sub_status
+    )
+end
+
+function sub_optimize_qp!(sqp::AbstractSqpTrOptimizer)
+    c = zeros(sqp.problem.n)
+    Q = sparse(I, sqp.problem.n, sqp.problem.n)
+    bl = [sqp.problem.x_L; sqp.problem.g_L]
+    bu = [sqp.problem.x_U; sqp.problem.g_U]
+    for i = 1:sqp.problem.m
+        bl[sqp.problem.n+i] -= sqp.E[i]
+        bu[sqp.problem.n+i] -= sqp.E[i]
+    end
+    for i = 1:sqp.problem.n
+        bl[i] = max(bl[i] - sqp.x[i], -sqp.Δ)
+        bu[i] = min(bu[i] - sqp.x[i],  sqp.Δ)
+    end
+    QPsolve!(
+        sqp.problem.n,
+        sqp.problem.m,
+        c, Q, sqp.Jacobian, bl, bu,
+        sqp.p, sqp.r, sqp.sub_status
+    )
+end
+
 """
     violation_of_linear_constraints
 
@@ -232,9 +442,6 @@ Compute the violation of linear constraints at a given point `x`
 This function assumes that the first `sqp.problem.num_linear_constraints` constraints are linear.
 """
 function violation_of_linear_constraints(sqp::AbstractSqpTrOptimizer, x::TD)::T where {T, TD <: AbstractVector{T}}
-    # evaluate constraints
-    sqp.problem.eval_g(x, sqp.E)
-
     lpviol = 0.0
     for i = 1:sqp.problem.num_linear_constraints
         lpviol += max(0.0, sqp.problem.g_L[i] - sqp.E[i])
@@ -245,56 +452,6 @@ function violation_of_linear_constraints(sqp::AbstractSqpTrOptimizer, x::TD)::T 
         lpviol -= min(0.0, sqp.problem.x_U[i] - x[i])
     end
     return lpviol
-end
-
-"""
-    sub_optimize_lp!
-
-Compute the initial point that is feasible to linear constraints and variable bounds.
-
-# Arguments
-- `sqp`: SQP model struct
-"""
-function sub_optimize_lp!(sqp::AbstractSqpTrOptimizer)
-    sqp.f = sqp.problem.eval_f(sqp.x)
-    sqp.problem.eval_grad_f(sqp.x, sqp.df)
-    eval_Jacobian!(sqp)
-    if 1 == 1
-        sqp.x, sqp.lambda, sqp.mult_x_U, sqp.mult_x_L, sqp.sub_status = sub_optimize_lp(
-            sqp.options.external_optimizer, 
-            sqp.Jacobian, sqp.problem.g_L, sqp.problem.g_U,
-            sqp.problem.x_L, sqp.problem.x_U, sqp.x,
-            sqp.problem.num_linear_constraints, sqp.problem.m
-        )
-    else
-        fill!(sqp.E, 0.0)
-        
-        sqp.optimizer =
-            SubOptimizer(
-                JuMP.Model(sqp.options.external_optimizer), 
-                QpData(
-                    MOI.MIN_SENSE,
-                    nothing,
-                    sqp.df,
-                    sqp.Jacobian,
-                    sqp.E,
-                    sqp.problem.g_L,
-                    sqp.problem.g_U,
-                    sqp.problem.x_L,
-                    sqp.problem.x_U,
-                    sqp.problem.num_linear_constraints
-                )
-            )
-        create_model!(sqp.optimizer, sqp.Δ)
-        sqp.x, sqp.lambda, sqp.mult_x_U, sqp.mult_x_L, sqp.sub_status = sub_optimize_lp(sqp.optimizer, sqp.x)
-    end
-
-    # TODO: Do we need to discard small numbers?
-    dropzeros!(sqp.x)
-    dropzeros!(sqp.lambda)
-    dropzeros!(sqp.mult_x_U)
-    dropzeros!(sqp.mult_x_L)
-    return
 end
 
 """
@@ -315,6 +472,10 @@ function sub_optimize!(sqp::AbstractSqpTrOptimizer)
     else
         sqp.optimizer.data = QpData(sqp)
     end
+    # println("Hessian:")
+    # print_matrix(sqp.Hessian)
+    # println("Jacobian:")
+    # print_matrix(sqp.Jacobian)
     # TODO: This can be modified to Sl1QP.
     if sqp.feasibility_restoration
         return sub_optimize_FR!(sqp.optimizer, sqp.x, sqp.Δ)
@@ -347,8 +508,8 @@ function sub_optimize_soc!(sqp::AbstractSqpTrOptimizer)
         sqp.problem.x_U,
         sqp.problem.num_linear_constraints
     )
-    p, _, _, _, _, _ = sub_optimize!(sqp.optimizer, sqp.x, sqp.Δ)
-    sqp.p_soc .= sqp.p .+ p
+    sub_optimize!(sqp.optimizer, sqp.x, sqp.Δ)
+    sqp.p_soc .= sqp.p .+ sqp.optimizer.xsol
     return nothing
     # return sub_optimize_L1QP!(sqp.optimizer, sqp.x, sqp.Δ, sqp.μ)
 end
@@ -363,105 +524,17 @@ Compute the step direction with respect to priaml and dual variables by solving 
 """
 function compute_step!(sqp::AbstractSqpTrOptimizer)
 
-    @info "solve QP subproblem..."
-    sqp.p, lambda, mult_x_U, mult_x_L, sqp.p_slack, sqp.sub_status = sub_optimize!(sqp)
+    @debug "solve QP subproblem..."
+    sub_optimize!(sqp)
 
-    sqp.p_lambda = lambda - sqp.lambda
-    sqp.p_mult_x_L = mult_x_L - sqp.mult_x_L
-    sqp.p_mult_x_U = mult_x_U - sqp.mult_x_U
-    sqp.μ = max(sqp.μ, norm(sqp.lambda, Inf))
-    @info "...found a direction"
-end
-
-"""
-    compute_step_Sl1QP!
-
-Compute the step direction with respect to priaml and dual variables by solving an elastic-mode QP subproblem and also updates the penalty parameter μ.
-
-# Arguments
-- `sqp`: SQP model struct
-
-# Note
-This is not currently used.
-"""
-function compute_step_Sl1QP!(sqp::AbstractSqpTrOptimizer)
-
-    ϵ_1 = 0.9
-    ϵ_2 = 0.1
-
-    sqp.p, lambda, mult_x_U, mult_x_L, sqp.p_slack, sqp.sub_status = sub_optimize!(sqp)
-
-    if sqp.sub_status ∈ [MOI.OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
-        # compute the constraint violation
-        m_0 = norm_violations(sqp, 1)
-        m_μ = 0.0
-        for (_, slacks) in sqp.p_slack
-            m_μ += sum(slacks)
-        end
-
-        if m_μ > 1.0e-8
-            p, infeasibility = sub_optimize_infeas(sqp.optimizer, sqp.x, sqp.Δ)
-            # @show m_μ, infeasibility
-            if infeasibility < 1.0e-8
-                while m_μ > 1.0e-8 && sqp.μ < sqp.options.max_mu
-                    sqp.μ = min(10.0 * sqp.μ, sqp.options.max_mu)
-
-                    sqp.p, lambda, mult_x_U, mult_x_L, sqp.p_slack, sqp.sub_status = sub_optimize_L1QP!(sqp.optimizer, sqp.x, sqp.Δ, sqp.μ)
-
-                    m_μ = 0.0
-                    for (_, slacks) in sqp.p_slack, s in slacks
-                        m_μ += s
-                    end
-                    @info "L1QP solve for feasible QP" infeasibility sqp.μ sqp.sub_status m_μ
-                end
-            else
-                m_inf = norm_violations(
-                    sqp.E + sqp.Jacobian * p,
-                    sqp.problem.g_L,
-                    sqp.problem.g_U,
-                    sqp.x + p,
-                    sqp.problem.x_L,
-                    sqp.problem.x_U,
-                    1,
-                )
-                while m_0 - m_μ < ϵ_1 * (m_0 - m_inf) && sqp.μ < sqp.options.max_mu
-                    sqp.μ = min(10.0 * sqp.μ, sqp.options.max_mu)
-                    sqp.p, lambda, mult_x_U, mult_x_L, sqp.p_slack, sqp.sub_status = sub_optimize_L1QP!(sqp.optimizer, sqp.x, sqp.Δ, sqp.μ)
-
-                    m_μ = 0.0
-                    for (_, slacks) in sqp.p_slack, s in slacks
-                        m_μ += s
-                    end
-                    @info "L1QP solve for infeasible QP" infeasibility sqp.μ m_0 m_μ
-                end
-            end
-        end
-
-        # q_0 = compute_qmodel(sqp, false)
-        # q_k = compute_qmodel(sqp, true)
-        # @info "L1QP solve for μ+" q_0 q_k m_0 m_μ
-        # while q_0 - q_k < ϵ_2 * sqp.μ * (m_0 - m_μ)
-        #     sqp.μ = min(2.0 * sqp.μ, sqp.options.max_mu)
-        #     sqp.p, lambda, mult_x_U, mult_x_L, sqp.p_slack, sqp.sub_status = sub_optimize_L1QP!(sqp.optimizer, sqp.x, sqp.Δ, sqp.μ)
-
-        #     m_μ = 0.0
-        #     for (_, slacks) in sqp.p_slack, s in slacks
-        #         m_μ += s
-        #     end
-        #     q_k = compute_qmodel(sqp, true)
-        #     @info "L1QP solve for μ+" q_0 q_k m_0 m_μ
-        # end
-
-    else
-        @error "Unexpected QP subproblem status $(sqp.sub_status)"
+    if sqp.optimizer.status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+        sqp.p .= sqp.optimizer.xsol
+        sqp.p_lambda .= sqp.optimizer.λ .- sqp.lambda
+        sqp.p_mult_x_L .= max.(0.0, sqp.optimizer.μ) .- sqp.mult_x_L
+        sqp.p_mult_x_U .= min.(0.0, sqp.optimizer.μ) .- sqp.mult_x_U
+        sqp.μ = max(sqp.μ, norm(sqp.lambda, Inf))
+        @debug "...found a direction"
     end
-
-    @info "...solved QP subproblem"
-
-    sqp.p_lambda = lambda - sqp.lambda
-    sqp.p_mult_x_L = mult_x_L - sqp.mult_x_L
-    sqp.p_mult_x_U = mult_x_U - sqp.mult_x_U
-    sqp.μ = max(sqp.μ, norm(sqp.lambda, Inf))
 end
 
 """
@@ -491,15 +564,28 @@ function compute_qmodel(sqp::AbstractSqpTrOptimizer, p::TD, with_step::Bool = fa
     qval += sqp.μ * norm_violations(
         sqp.tmpE,
         sqp.problem.g_L,
-        sqp.problem.g_U,
-        sqp.tmpx,
-        sqp.problem.x_L,
-        sqp.problem.x_U,
-        1,
+        sqp.problem.g_U
     )
     return qval
 end
 compute_qmodel(sqp::AbstractSqpTrOptimizer, with_step::Bool = false) = compute_qmodel(sqp, sqp.p, with_step)
+
+function check_accept!(sqp::AbstractSqpTrOptimizer)
+    ϕ_k = compute_phi(sqp, sqp.x, 1.0, sqp.p)
+    ared = sqp.phi - ϕ_k
+    pred = 1.0
+    if !sqp.feasibility_restoration
+        q_0 = compute_qmodel(sqp, false)
+        q_k = compute_qmodel(sqp, true)
+        pred = q_0 - q_k
+    end
+    ρ = ared / pred
+    if ared > 0 && ρ > 0
+        sqp.step_acceptance = true
+    else
+        sqp.step_acceptance = false
+    end
+end
 
 """
     do_step!
@@ -511,6 +597,13 @@ function do_step!(sqp::AbstractSqpTrOptimizer)
     ϕ_k = compute_phi(sqp, sqp.x, 1.0, sqp.p)
     ared = sqp.phi - ϕ_k
     # @show sqp.phi, ϕ_k
+    @debug begin
+        sqp.tmpx .= sqp.x .+ sqp.p
+        f = sqp.problem.eval_f(sqp.tmpx)
+        sqp.problem.eval_g(sqp.tmpx, sqp.tmpE)
+        viol = norm_violations(sqp.tmpE, sqp.problem.g_L, sqp.problem.g_U)
+        "new ϕ = $f + $(sqp.μ) * $(viol)"
+    end
 
     pred = 1.0
     if !sqp.feasibility_restoration
@@ -521,6 +614,7 @@ function do_step!(sqp::AbstractSqpTrOptimizer)
     end
 
     ρ = ared / pred
+    @debug "test step acceptance" sqp.phi ϕ_k ared pred ρ
     if ared > 0 && ρ > 0
         sqp.x .+= sqp.p
         sqp.lambda .+= sqp.p_lambda
@@ -576,7 +670,7 @@ function print_header(sqp::AbstractSqpTrOptimizer)
     if sqp.options.OutputFlag == 0
         return
     end
-    @printf("  %6s", "iter")
+    @printf("%11s", "iter")
     @printf(" ")
     @printf("  %15s", "f(x_k)")
     @printf("  %15s", "ϕ(x_k)")
@@ -604,7 +698,7 @@ function print(sqp::AbstractSqpTrOptimizer, status_mark = "  ")
         print_header(sqp)
     end
     st = ifelse(sqp.feasibility_restoration, "FR", status_mark)
-    @printf("%2s%6d", st, sqp.iter)
+    @printf("%5s%6d", st, sqp.iter)
     @printf("%1s", ifelse(sqp.step_acceptance, "a", "r"))
     @printf("  %+6.8e", sqp.f)
     @printf("  %+6.8e", sqp.phi)

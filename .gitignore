@@ -1,3 +1,4 @@
 .vscode
 examples/data/*
 Manifest.toml
+examples/acopf/NLPproblem.summary

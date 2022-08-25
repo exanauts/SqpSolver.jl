@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../filterSQP"
+		}
+	],
+	"settings": {
+		"julia.environmentPath": "/Users/kibaekkim/Documents/REPOS/SQP/examples/acopf"
+	}
+}

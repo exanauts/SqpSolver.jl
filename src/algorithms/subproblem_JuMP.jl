@@ -7,6 +7,11 @@ mutable struct QpJuMP{T,Tv<:AbstractArray{T},Tm<:AbstractMatrix{T}} <: AbstractS
     rngcons::Vector{Int}
     slack_vars::Dict{Int,Vector{JuMP.VariableRef}}
 
+    xsol::Tv
+    λ::Tv
+    μ::Tv
+    status
+
     function QpJuMP(model::JuMP.AbstractModel, data::QpData{T,Tv,Tm}) where {T,Tv,Tm}
         qp = new{T,Tv,Tm}()
         qp.model = model
@@ -16,6 +21,10 @@ mutable struct QpJuMP{T,Tv<:AbstractArray{T},Tm<:AbstractMatrix{T}} <: AbstractS
         qp.rngbdcons = []
         qp.rngcons = []
         qp.slack_vars = Dict()
+        qp.xsol = []
+        qp.λ = []
+        qp.μ = []
+        qp.status = MOI.OPTIMIZE_NOT_CALLED
         return qp
     end
 end
@@ -45,6 +54,10 @@ function create_model!(
 
     n = length(qp.data.c)
     m = length(qp.data.c_lb)
+
+    qp.xsol = Tv(undef, n)
+    qp.λ = Tv(undef, m)
+    qp.μ = Tv(undef, n)
 
     # create nominal variables
     qp.x = @variable(
@@ -139,25 +152,13 @@ function sub_optimize!(
             sum(qp.data.c[i] * qp.x[i] for i = 1:n)
         )
     else
-        # obj = QuadExpr(
-        #     sum(qp.data.c[i] * qp.x[i] for i = 1:n)
-        # )
-        # for j = 1:qp.data.Q.n, i in nzrange(qp.data.Q, j)
-        #     add_to_expression!(
-        #         obj,
-        #         0.5*qp.data.Q.nzval[i],
-        #         qp.x[qp.data.Q.rowval[i]],
-        #         qp.x[j],
-        #     )
-        # end
-        # @objective(qp.model, qp.data.sense, obj)
         @objective(
             qp.model, 
             qp.data.sense, 
             sum(qp.data.c[i] * qp.x[i] for i = 1:n)
             + 0.5 * sum(
                 qp.data.Q.nzval[i] * qp.x[qp.data.Q.rowval[i]] * qp.x[j] 
-                for j = 1:qp.data.Q.n for i in nzrange(qp.data.Q, j)
+                for j = 1:qp.data.Q.n for i in nzrange(qp.data.Q, j) #if abs(qp.data.Q.nzval[i]) > 1.e-5
             )
         )
     end
@@ -176,174 +177,66 @@ function sub_optimize!(
     # @show x_k
     # JuMP.print(qp.model)
     JuMP.optimize!(qp.model)
-    status = termination_status(qp.model)
-    Xsol, lambda, mult_x_U, mult_x_L, p_slack = collect_solution!(qp, status)
+    qp.status = termination_status(qp.model)
+    collect_solution!(qp)
 
-    return Xsol, lambda, mult_x_U, mult_x_L, p_slack, status
+    return
 end
 
 function sub_optimize_lp(
     optimizer,
-    A::Tm, cl::Tv, cu::Tv, 
-    xl::Tv, xu::Tv, x_k::Tv, 
-    m::Int, num_constraints::Int
+    A::Tm, x_k::Tv,
+    problem::AbstractSqpModel
 ) where {T, Tv<:AbstractArray{T}, Tm<:AbstractMatrix{T}}
+
     n = length(x_k)
 
     model = JuMP.Model(optimizer)
-    @variable(model, xl[i] <= x[i=1:n] <= xu[i])
-    @objective(model, Min, sum((x[i] - x_k[i])^2 for i=1:n))
-    constr = Vector{JuMP.ConstraintRef}(undef, m)
-    for i = 1:m
+    @variable(model, problem.x_L[i] <= x[i=1:n] <= problem.x_U[i])
+    @objective(model, Min, sum(x[i]^2 for i=1:n))
+    constr = Vector{JuMP.ConstraintRef}(undef, problem.num_linear_constraints)
+    for i = 1:problem.num_linear_constraints
         arow = A[i,:]
-        if cl[i] == cu[i]
-            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) == cl[i])
-        elseif cl[i] > -Inf && cu[i] < Inf
-            constr[i] = @constraint(model, cl[i] <= sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) <= cu[i])
-        elseif cl[i] > -Inf
-            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) >= cl[i])
-        elseif cu[i] < Inf
-            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) <= cu[i])
+        if problem.g_L[i] == problem.g_U[i]
+            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) == problem.g_L[i])
+        elseif problem.g_L[i] > -Inf && problem.g_U[i] < Inf
+            constr[i] = @constraint(model, problem.g_L[i] <= sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) <= problem.g_U[i])
+        elseif problem.g_L[i] > -Inf
+            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) >= problem.g_L[i])
+        elseif problem.g_U[i] < Inf
+            constr[i] = @constraint(model, sum(a * x[arow.nzind[j]] for (j, a) in enumerate(arow.nzval)) <= problem.g_U[i])
         end
     end
     JuMP.optimize!(model)
     status = termination_status(model)
 
-    Xsol = Tv(undef, n)
-    lambda = zeros(T, num_constraints)
-    mult_x_U = zeros(T, n)
-    mult_x_L = zeros(T, n)
-
     if status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
-        Xsol .= JuMP.value.(x)
+        problem.x .= JuMP.value.(x)
 
         # extract the multipliers to constraints
-        for i = 1:m
-            lambda[i] = JuMP.dual(constr[i])
+        for i = 1:problem.num_linear_constraints
+            problem.mult_g[i] = JuMP.dual(constr[i])
         end
 
         # extract the multipliers to column bounds
         for i = 1:n
             redcost = JuMP.reduced_cost(x[i])
             if redcost > 0
-                mult_x_L[i] = redcost
+                problem.mult_x_L[i] = redcost
             elseif redcost < 0
-                mult_x_U[i] = redcost
+                problem.mult_x_U[i] = redcost
             end
         end
-    elseif status ∈ [MOI.LOCALLY_INFEASIBLE, MOI.INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
-        fill!(Xsol, 0.0)
-        fill!(lambda, 0.0)
-        fill!(mult_x_U, 0.0)
-        fill!(mult_x_L, 0.0)
+        status = :Optimal
+    elseif status ∈ [MOI.LOCALLY_INFEASIBLE, MOI.INFEASIBLE]
+        fill!(problem.x, 0.0)
+        fill!(problem.mult_x_L, 0.0)
+        fill!(problem.mult_x_U, 0.0)
+        status = :Infeasible
     else
         @error "Unexpected status: $(status)"
     end
-
-    return Xsol, lambda, mult_x_U, mult_x_L, status
-end
-
-function sub_optimize_lp(
-    qp::QpJuMP{T,Tv,Tm},
-    x_k::Tv,
-) where {T,Tv,Tm}
-
-    # problem dimension
-    m, n = size(qp.data.A)
-
-    # modify objective function
-    @objective(qp.model, Min, sum((qp.x[i] - x_k[i])^2 for i=1:n))
-    # @objective(qp.model, Min, sum((qp.x[i])^2 for i=1:n))
-
-    # modify slack variable bounds
-    for (i, slacks) in qp.slack_vars, s in slacks
-        if JuMP.has_lower_bound(s)
-            JuMP.delete_lower_bound(s)
-        end
-        if i <= qp.data.num_linear_constraints
-            JuMP.fix(s, 0.0)
-        end
-    end
-
-    # set initial variable values
-    for i = 1:n
-        JuMP.set_start_value(qp.x[i], x_k[i])
-    end
-
-    set_trust_region!(qp, Inf)
-    modify_constraints!(qp)
-
-    JuMP.optimize!(qp.model)
-    status = termination_status(qp.model)
-    Xsol, lambda, mult_x_U, mult_x_L, p_slack = collect_solution!(qp, status)
-
-    return Xsol, lambda, mult_x_U, mult_x_L, status
-end
-
-function sub_optimize_L1QP!(
-    qp::QpJuMP{T,Tv,Tm},
-    x_k::Tv,
-    Δ::T,
-    μ::T,
-) where {T,Tv,Tm}
-
-    # problem dimension
-    m, n = size(qp.data.A)
-
-    # modify objective function
-    obj_direction = ifelse(qp.data.sense == MOI.MIN_SENSE, 1.0, -1.0)
-    if isnothing(qp.data.Q)
-        @objective(qp.model, qp.data.sense, 
-            sum(qp.data.c[i] * qp.x[i] for i = 1:n)
-            + obj_direction * μ * sum(s for (_, slacks) in qp.slack_vars, s in slacks)
-        )
-    else
-        # μ_inv = 1.0 / μ
-        # @objective(
-        #     qp.model, 
-        #     qp.data.sense, 
-        #     μ_inv * sum(qp.data.c[i] * qp.x[i] for i = 1:n)
-        #     + μ_inv * 0.5 * sum(
-        #         qp.data.Q.nzval[i] * qp.x[qp.data.Q.rowval[i]] * qp.x[j] 
-        #         for j = 1:qp.data.Q.n for i in nzrange(qp.data.Q, j)
-        #     )
-        #     + obj_direction * sum(s for (_, slacks) in qp.slack_vars for s in slacks)
-        # )
-        @objective(
-            qp.model, 
-            qp.data.sense, 
-            sum(qp.data.c[i] * qp.x[i] for i = 1:n)
-            + 0.5 * sum(
-                qp.data.Q.nzval[i] * qp.x[qp.data.Q.rowval[i]] * qp.x[j] 
-                for j = 1:qp.data.Q.n for i in nzrange(qp.data.Q, j)
-            )
-            + obj_direction * μ * sum(s for (_, slacks) in qp.slack_vars for s in slacks)
-        )
-    end
-
-    # modify slack variable bounds
-    for (_, slacks) in qp.slack_vars, s in slacks
-        if JuMP.is_fixed(s)
-            JuMP.unfix(s)
-        end
-        set_lower_bound(s, 0.0)
-    end
-
-    set_trust_region!(qp, x_k, Δ)
-    modify_constraints!(qp)
-
-    # JuMP.print(qp.model)
-    JuMP.optimize!(qp.model)
-    status = termination_status(qp.model)
-    Xsol, lambda, mult_x_U, mult_x_L, p_slack = collect_solution!(qp, status)
-
-    # for i in 1:n
-    #     v_lb = qp.data.v_lb[i] - x_k[i]
-    #     v_ub = qp.data.v_ub[i] - x_k[i]
-    #     @show i, Xsol[i], v_lb, v_ub, mult_x_L[i], mult_x_U[i]
-    # end
-
-    return Xsol, lambda, mult_x_U, mult_x_L, p_slack, status
+    return status
 end
 
 """
@@ -386,10 +279,10 @@ function sub_optimize_FR!(
     # @show x_k
     # JuMP.print(qp.model)
     JuMP.optimize!(qp.model)
-    status = termination_status(qp.model)
-    Xsol, lambda, mult_x_U, mult_x_L, p_slack = collect_solution!(qp, status)
+    qp.status = termination_status(qp.model)
+    collect_solution!(qp)
 
-    return Xsol, lambda, mult_x_U, mult_x_L, p_slack, status
+    return
 end
 
 """
@@ -505,51 +398,37 @@ function modify_constraints!(qp::QpJuMP{T,Tv,Tm}) where {T,Tv,Tm}
     end
 end
 
-function collect_solution!(qp::QpJuMP{T,Tv,Tm}, status) where {T,Tv,Tm}
+function collect_solution!(qp::QpJuMP{T,Tv,Tm}) where {T,Tv,Tm}
 
     # problem dimension
     m, n = size(qp.data.A)
 
-    Xsol = Tv(undef, n)
-    p_slack = Dict{Int,Vector{Float64}}()
-    lambda = Tv(undef, m)
-    mult_x_U = zeros(T, n)
-    mult_x_L = zeros(T, n)
-
-    if status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
-        Xsol .= JuMP.value.(qp.x)
-        for (i, slacks) in qp.slack_vars
-            p_slack[i] = JuMP.value.(slacks)
-        end
-        # @show JuMP.objective_value(qp.model), Xsol
-        # @show p_slack
+    if qp.status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
+        qp.xsol .= JuMP.value.(qp.x)
 
         # extract the multipliers to constraints
         for i = 1:m
-            lambda[i] = JuMP.dual(qp.constr[i])
+            qp.λ[i] = JuMP.dual(qp.constr[i])
         end
         for (i, val) in enumerate(qp.rngcons)
-            lambda[val] += JuMP.dual(qp.constr[i+m])
+            qp.λ[val] += JuMP.dual(qp.constr[i+m])
         end
         # @show MOI.get(qp.model, MOI.ConstraintDual(1), qp.constr)
 
         # extract the multipliers to column bounds
         for i = 1:n
-            redcost = JuMP.reduced_cost(qp.x[i])
-            if redcost > 0
-                mult_x_L[i] = redcost
-            elseif redcost < 0
-                mult_x_U[i] = redcost
-            end
+            qp.μ[i] = JuMP.reduced_cost(qp.x[i])
+            # if redcost > 0
+            #     mult_x_L[i] = redcost
+            # elseif redcost < 0
+            #     mult_x_U[i] = redcost
+            # end
         end
-    elseif status ∈ [MOI.LOCALLY_INFEASIBLE, MOI.INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
-        fill!(Xsol, 0.0)
-        fill!(lambda, 0.0)
-        fill!(mult_x_U, 0.0)
-        fill!(mult_x_L, 0.0)
+    elseif qp.status ∈ [MOI.LOCALLY_INFEASIBLE, MOI.INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
+        fill!(qp.xsol, 0.0)
+        fill!(qp.λ, 0.0)
+        fill!(qp.μ, 0.0)
     else
-        @error "Unexpected status: $(status)"
+        @error "Unexpected status: $(qp.status)"
     end
-
-    return Xsol, lambda, mult_x_U, mult_x_L, p_slack
 end
