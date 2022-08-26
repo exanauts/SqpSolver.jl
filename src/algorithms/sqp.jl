@@ -90,7 +90,7 @@ function eval_functions!(sqp::AbstractSqpOptimizer)
     eval_Jacobian!(sqp)
     # print_matrix(sqp.Jacobian)
     if !isnothing(sqp.problem.eval_h)
-        sqp.problem.eval_h(sqp.x, :eval, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
+        sqp.problem.eval_h(sqp.x, sqp.h_row, sqp.h_col, 1.0, sqp.lambda, sqp.h_val)
         fill!(sqp.Hessian.nzval, 0.0)
         for (i, v) in enumerate(sqp.h_val)
             if sqp.h_col[i] == sqp.h_row[i]
@@ -109,7 +109,7 @@ end
 Evaluate Jacobian matrix.
 """
 function eval_Jacobian!(sqp::AbstractSqpOptimizer)
-    sqp.problem.eval_jac_g(sqp.x, :eval, sqp.j_row, sqp.j_col, sqp.dE)
+    sqp.problem.eval_jac_g(sqp.x, sqp.j_row, sqp.j_col, sqp.dE)
     fill!(sqp.Jacobian.nzval, 0.0)
     for (i, v) in enumerate(sqp.dE)
         sqp.Jacobian[sqp.j_row[i],sqp.j_col[i]] += v
