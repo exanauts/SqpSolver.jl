@@ -74,7 +74,7 @@ function create_model!(qp::QpModel{T,Tv,Tm}, x_k::Tv, Δ::T, tol_error = 0.0) wh
             qp.constr_slack,
             MOI.add_constraint(
                 qp.model,
-                MOI.SingleVariable(qp.slack_vars[i][1]),
+                MOI.VariableIndex(qp.slack_vars[i][1]),
                 MOI.GreaterThan(0.0),
             ),
         )
@@ -84,7 +84,7 @@ function create_model!(qp::QpModel{T,Tv,Tm}, x_k::Tv, Δ::T, tol_error = 0.0) wh
                 qp.constr_slack,
                 MOI.add_constraint(
                     qp.model,
-                    MOI.SingleVariable(qp.slack_vars[i][2]),
+                    MOI.VariableIndex(qp.slack_vars[i][2]),
                     MOI.GreaterThan(0.0),
                 ),
             )
@@ -126,11 +126,11 @@ function create_model!(qp::QpModel{T,Tv,Tm}, x_k::Tv, Δ::T, tol_error = 0.0) wh
         lb = (abs(lb) <= tol_error) ? 0.0 : lb
         push!(
             qp.constr_v_ub,
-            MOI.add_constraint(qp.model, MOI.SingleVariable(qp.x[i]), MOI.LessThan(ub)),
+            MOI.add_constraint(qp.model, MOI.VariableIndex(qp.x[i]), MOI.LessThan(ub)),
         )
         push!(
             qp.constr_v_lb,
-            MOI.add_constraint(qp.model, MOI.SingleVariable(qp.x[i]), MOI.GreaterThan(lb)),
+            MOI.add_constraint(qp.model, MOI.VariableIndex(qp.x[i]), MOI.GreaterThan(lb)),
         )
     end
 
@@ -288,7 +288,7 @@ function sub_optimize!(
 
         do_transform = false
         for cons in qp.constr_slack
-            if typeof(cons) == MOI.ConstraintIndex{MOI.SingleVariable,MOI.EqualTo{T}}
+            if typeof(cons) == MOI.ConstraintIndex{MOI.VariableIndex,MOI.EqualTo{T}}
                 do_transform = true
                 break
             end
@@ -446,7 +446,7 @@ function sub_optimize!(
         # set slack variable bounds
         do_transform = false
         for cons in qp.constr_slack
-            if typeof(cons) != MOI.ConstraintIndex{MOI.SingleVariable,MOI.EqualTo{T}}
+            if typeof(cons) != MOI.ConstraintIndex{MOI.VariableIndex,MOI.EqualTo{T}}
                 do_transform = true
                 break
             end
