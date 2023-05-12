@@ -436,8 +436,14 @@ function set_trust_region!(
     Δ::T
 ) where {T,Tv}
     for i in eachindex(x)
-        set_lower_bound(x[i], max(-Δ, v_lb[i]))
-        set_upper_bound(x[i], min(+Δ, v_ub[i]))
+        lb = max(-Δ, v_lb[i])
+        ub = min(+Δ, v_ub[i])
+        if lb > ub
+            lb = max(-Δ, min(0.0, v_lb[i]))
+            ub = min(+Δ, max(0.0, v_ub[i]))
+        end
+        set_lower_bound(x[i], lb)
+        set_upper_bound(x[i], ub)
     end
 end
 
