@@ -534,7 +534,7 @@ function do_step!(sqp::AbstractSqpTrOptimizer)
         sqp.lambda .+= sqp.p_lambda
         sqp.mult_x_L .+= sqp.p_mult_x_L
         sqp.mult_x_U .+= sqp.p_mult_x_U
-        if sqp.Δ == norm(sqp.p, Inf)
+        if isapprox(sqp.Δ, norm(sqp.p, Inf))
             sqp.Δ = min(2 * sqp.Δ, sqp.Δ_max)
         end
         sqp.step_acceptance = true
