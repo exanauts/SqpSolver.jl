@@ -1,4 +1,4 @@
-using SQP, Ipopt
+using SqpSolver, Ipopt
 using JuMP
 
 ipopt_solver = optimizer_with_attributes(
@@ -7,7 +7,7 @@ ipopt_solver = optimizer_with_attributes(
     "warm_start_init_point" => "yes",
 )
 optimizer = optimizer_with_attributes(
-    SQP.Optimizer, 
+    SqpSolver.Optimizer, 
     "external_optimizer" => ipopt_solver,
     "max_iter" => 100,
     "algorithm" => "SQP-TR",

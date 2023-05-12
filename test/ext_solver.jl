@@ -5,7 +5,7 @@ qp_solver = optimizer_with_attributes(
     "warm_start_init_point" => "yes",
 )
 optimizer_solver = optimizer_with_attributes(
-    SQP.Optimizer,
+    SqpSolver.Optimizer,
     "external_optimizer" => qp_solver,
     "algorithm" => "SQP-TR",
     "OutputFlag" => 0,

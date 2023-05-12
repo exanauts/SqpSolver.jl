@@ -16,7 +16,7 @@ function run_sqp_opf(data_file::String, max_iter::Int = 100)
         "warm_start_init_point" => "yes",
     )
     result = optimize_model!(pm, optimizer = optimizer_with_attributes(
-        SQP.Optimizer, 
+        SqpSolver.Optimizer, 
         "algorithm" => "SQP-TR",
         "external_optimizer" => qp_solver,
         "max_iter" => max_iter,

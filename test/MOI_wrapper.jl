@@ -1,16 +1,16 @@
 module TestMOIWrapper
 
-using SQP
+using SqpSolver
 using Ipopt
 using JuMP
 using Test
 
-const MOI = SQP.MathOptInterface
+const MOI = SqpSolver.MathOptInterface
 const MOIT = MOI.Test
 const MOIU = MOI.Utilities
 const MOIB = MOI.Bridges
 
-const optimizer = SQP.Optimizer()
+const optimizer = SqpSolver.Optimizer()
 const ipopt_optimizer = optimizer_with_attributes(
     Ipopt.Optimizer,
     "print_level" => 0,
