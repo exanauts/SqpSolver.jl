@@ -553,6 +553,8 @@ function collect_solution!(qp::QpJuMP{T,Tv,Tm}, status) where {T,Tv,Tm}
         fill!(lambda, 0.0)
         fill!(mult_x_U, 0.0)
         fill!(mult_x_L, 0.0)
+    elseif status == MOI.ITERATION_LIMIT
+        @warn "Solution status: $(status)"
     else
         @error "Unexpected status: $(status)"
     end
