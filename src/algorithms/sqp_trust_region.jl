@@ -111,10 +111,12 @@ function run!(sqp::AbstractSqpTrOptimizer)
 
     # Find the initial point feasible to linear and bound constraints
     lpviol = violation_of_linear_constraints(sqp, sqp.x)
-    if lpviol > sqp.options.tol_infeas
+    if isnan(sqp.f)
+        sqp.problem.status = -13
+        return
+    elseif lpviol > sqp.options.tol_infeas
         @info "Initial point not feasible to linear constraints..."
         sub_optimize_lp!(sqp)
-
         print(sqp, "LP")
     else
         @info "Initial point feasible to linear constraints..." lpviol
@@ -233,7 +235,10 @@ This function assumes that the first `sqp.problem.num_linear_constraints` constr
 """
 function violation_of_linear_constraints(sqp::AbstractSqpTrOptimizer, x::TD)::T where {T, TD <: AbstractVector{T}}
     # evaluate constraints
-    sqp.problem.eval_g(x, sqp.E)
+    sqp.f = sqp.problem.eval_f(sqp.x)
+    if !isnan(sqp.f)
+        sqp.problem.eval_g(x, sqp.E)
+    end
 
     lpviol = 0.0
     for i = 1:sqp.problem.num_linear_constraints
