@@ -72,7 +72,6 @@ mutable struct SqpTR{T,TD,TI} <: AbstractSqpTrOptimizer
 
         sqp.prim_infeas = Inf
         sqp.dual_infeas = Inf
-        sqp.compl = Inf
 
         sqp.options = problem.parameters
         sqp.optimizer = nothing
@@ -136,7 +135,6 @@ function run!(sqp::AbstractSqpTrOptimizer)
             eval_functions!(sqp)
             sqp.prim_infeas = norm_violations(sqp)
             sqp.dual_infeas = KT_residuals(sqp)
-            sqp.compl = norm_complementarity(sqp)
         end
 
         # solve QP subproblem
@@ -594,7 +592,7 @@ function print_header(sqp::AbstractSqpTrOptimizer)
     @printf("  %14s", "|p|")
     @printf("  %14s", "inf_pr")
     @printf("  %14s", "inf_du")
-    @printf("  %14s", "compl")
+    # @printf("  %14s", "compl")
     @printf("  %10s", "time")
     @printf("\n")
 end
@@ -631,11 +629,6 @@ function print(sqp::AbstractSqpTrOptimizer, status_mark = "  ")
     else
         @printf("  %6.8e", sqp.dual_infeas)
     end
-    if isinf(sqp.compl)
-        @printf("  %14s", "Inf")
-    else
-        @printf("  %6.8e", sqp.compl)
-    end
     @printf("  %10.2f", time() - sqp.start_time)
     @printf("\n")
 end
@@ -656,8 +649,7 @@ function collect_statistics(sqp::AbstractSqpTrOptimizer)
     add_statistics(sqp.problem, "|J|2", norm(sqp.dE, 2))
     add_statistics(sqp.problem, "|J|inf", norm(sqp.dE, Inf))
     add_statistics(sqp.problem, "inf_pr", sqp.prim_infeas)
-    # add_statistics(sqp.problem, "inf_du", dual_infeas)
-    add_statistics(sqp.problem, "compl", sqp.compl)
+    add_statistics(sqp.problem, "inf_du", sqp.dual_infeas)
     add_statistics(sqp.problem, "alpha", sqp.alpha)
     add_statistics(sqp.problem, "iter_time", time() - sqp.start_iter_time)
     add_statistics(sqp.problem, "time_elapsed", time() - sqp.start_time)
