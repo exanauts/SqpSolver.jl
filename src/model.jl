@@ -49,6 +49,7 @@ mutable struct Model{T,TD} <: AbstractSqpModel
         eval_jac_g::Function,
         eval_h::Union{Function,Nothing},
         num_linear_constraints::Int,
+        sense::Symbol, # {:Min, :Max}
         parameters::Parameters
     ) where {T, TD<:AbstractArray{T}} = new{T,TD}(
         n, m,
@@ -60,7 +61,7 @@ mutable struct Model{T,TD} <: AbstractSqpModel
         -5,
         eval_f, eval_g, eval_grad_f, eval_jac_g, eval_h, 
         num_linear_constraints,
-        nothing, :Min,
+        nothing, sense,
         parameters,
         Dict{String,Any}()
     )

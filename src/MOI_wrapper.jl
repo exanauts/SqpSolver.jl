@@ -1177,6 +1177,7 @@ function MOI.optimize!(model::Optimizer)
         eval_jac_g_cb, 
         has_hessian ? eval_h_cb : nothing,
         num_linear_constraints,
+        objective_scale == -1 ? :Max : :Min,
         model.options
     )
     options = model.inner.parameters
