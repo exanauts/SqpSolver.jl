@@ -67,7 +67,7 @@ mutable struct SqpTR{T,TD,TI} <: AbstractSqpTrOptimizer
         sqp.μ = 1.0e+4
         sqp.Δ = 10.0
         sqp.Δ_min = 1.0e-4
-        sqp.Δ_max = 1.0e+4
+        sqp.Δ_max = 1.0e+8
         sqp.step_acceptance = true
 
         sqp.prim_infeas = Inf
@@ -145,7 +145,12 @@ function run!(sqp::AbstractSqpTrOptimizer)
 
         if sqp.sub_status ∈ [MOI.OPTIMAL, MOI.ALMOST_OPTIMAL, MOI.ALMOST_LOCALLY_SOLVED, MOI.LOCALLY_SOLVED]
             # do nothing
-        elseif sqp.sub_status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE, MOI.DUAL_INFEASIBLE, MOI.NORM_LIMIT, MOI.OBJECTIVE_LIMIT]
+            if sqp.Δ == sqp.Δ_max && isapprox(norm(sqp.p, Inf), sqp.Δ)
+                @info "Problem is possibly unbounded."
+                sqp.ret = 4
+                break
+            end
+        elseif sqp.sub_status ∈ [MOI.INFEASIBLE, MOI.LOCALLY_INFEASIBLE]
             if sqp.feasibility_restoration == true
                 @info "Failed to find a feasible direction"
                 if sqp.prim_infeas <= sqp.options.tol_infeas
