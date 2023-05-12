@@ -574,7 +574,7 @@ function do_step!(sqp::AbstractSqpTrOptimizer)
         end
 
         if !perform_soc
-            sqp.Δ = 0.5 * min(sqp.Δ, norm(sqp.p, Inf))
+            sqp.Δ = max(0.5 * min(sqp.Δ, norm(sqp.p, Inf)), 0.1 * sqp.options.tol_direction)
             sqp.step_acceptance = false
         end
     end
