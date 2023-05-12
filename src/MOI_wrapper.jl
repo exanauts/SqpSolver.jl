@@ -12,7 +12,7 @@ _ConstraintInfo(func, set) = _ConstraintInfo(func, set, nothing)
 """
     Optimizer()
 
-Create a new SQP optimizer.
+Create a new SqpSolver optimizer.
 """
 mutable struct Optimizer <: MOI.AbstractOptimizer
     inner::Union{Model,Nothing}
@@ -173,7 +173,7 @@ function MOI.copy_to(model::Optimizer, src::MOI.ModelLike)
     return MOI.Utilities.default_copy_to(model, src)
 end
 
-MOI.get(::Optimizer, ::MOI.SolverName) = "SQP"
+MOI.get(::Optimizer, ::MOI.SolverName) = "SqpSolver"
 
 function MOI.supports_constraint(
     ::Optimizer,
@@ -746,8 +746,8 @@ function MOI.set(
     return
 end
 
-### SQP callback functions
-### In setting up the data for SQP, we order the constraints as follows:
+### SqpSolver callback functions
+### In setting up the data for SqpSolver, we order the constraints as follows:
 ### - linear_le_constraints
 ### - linear_ge_constraints
 ### - linear_eq_constraints

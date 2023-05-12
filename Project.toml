@@ -1,4 +1,4 @@
-name = "SQP"
+name = "SqpSolver"
 uuid = "ffdd34ce-459d-4fc7-82a1-202b2ab8becf"
 authors = ["Kibaek Kim <kibaek.k@gmail.com>"]
 version = "0.1.0"

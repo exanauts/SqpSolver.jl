@@ -1,4 +1,4 @@
-module SQP
+module SqpSolver
 
 using LinearAlgebra
 using SparseArrays

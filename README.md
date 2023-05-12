@@ -1,14 +1,14 @@
-# SQP.jl
+# SqpSolver.jl
 
-![Run tests](https://github.com/exanauts/SQP.jl/workflows/Run%20tests/badge.svg?branch=master)
-[![codecov](https://codecov.io/gh/exanauts/SQP.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/exanauts/SQP.jl)
+![Run tests](https://github.com/exanauts/SqpSolver.jl/workflows/Run%20tests/badge.svg?branch=master)
+[![codecov](https://codecov.io/gh/exanauts/SqpSolver.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/exanauts/SqpSolver.jl)
 
 This is a Julia package that implements sequantial quadratic programming algorithms for continuous nonlinear optimization.
 
 ## Installation
 
 ```julia
-]add https://github.com/exanauts/SQP.jl
+]add SqpSolver
 ```
 
 ## Example
@@ -23,7 +23,7 @@ s.t.  x^2 - x = 2
 This problem can be solved by the following code snippet:
 ```julia
 # Load packages
-using SQP, JuMP
+using SqpSolver, JuMP
 using Ipopt # can be any QP solver
 
 # Number of variables
@@ -31,7 +31,7 @@ n = 1
 
 # Build nonlinear problem model via JuMP
 model = Model(optimizer_with_attributes(
-    SQP.Optimizer, 
+    SqpSolver.Optimizer, 
     "external_optimizer" => Ipopt.Optimizer,
 ))
 @variable(model, x)
