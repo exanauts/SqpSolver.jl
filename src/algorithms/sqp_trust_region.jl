@@ -213,8 +213,8 @@ function run!(sqp::AbstractSqpTrOptimizer)
     sqp.problem.status = Int(sqp.ret)
     sqp.problem.x .= sqp.x
     sqp.problem.g .= sqp.E
-    sqp.problem.mult_g .= sqp.lambda
-    sqp.problem.mult_x_U .= sqp.mult_x_U
+    sqp.problem.mult_g .= -sqp.lambda
+    sqp.problem.mult_x_U .= -sqp.mult_x_U
     sqp.problem.mult_x_L .= sqp.mult_x_L
     add_statistic(sqp.problem, "iter", sqp.iter)
 end

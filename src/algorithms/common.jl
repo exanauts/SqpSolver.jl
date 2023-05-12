@@ -14,9 +14,9 @@ Compute Kuhn-Turck residuals
 function KT_residuals(
     df::Tv, lambda::Tv, mult_x_U::Tv, mult_x_L::Tv, Jac::Tm
 ) where {T, Tv<:AbstractArray{T}, Tm<:AbstractMatrix{T}}
-    KT_res = norm(df - Jac' * lambda - mult_x_U - mult_x_L)
-    scalar = max(1.0, norm(df))
-    for i = 1:size(Jac,1)
+    KT_res = norm(df + Jac' * lambda + mult_x_U - mult_x_L, Inf)
+    scalar = max(1.0, norm(df, Inf), norm(mult_x_U, Inf), norm(mult_x_L, Inf))
+    for i = axes(Jac,1)
         scalar = max(scalar, abs(lambda[i]) * norm(Jac[i,:]))
     end
     return KT_res / scalar
