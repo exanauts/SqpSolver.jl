@@ -197,17 +197,12 @@ function run!(sqp::AbstractSqpTrOptimizer)
             end
         end
 
-        if sqp.prim_infeas <= sqp.options.tol_infeas &&
-           sqp.compl <= sqp.options.tol_residual #&&
-        #    norm(sqp.p, Inf) <= sqp.options.tol_direction
-            if sqp.feasibility_restoration
-                sqp.feasibility_restoration = false
-                sqp.iter += 1
-                continue
-            elseif sqp.dual_infeas <= sqp.options.tol_residual
-                sqp.ret = 0
-                break
-            end
+        if sqp.prim_infeas <= sqp.options.tol_infeas && 
+            sqp.dual_infeas <= sqp.options.tol_residual && 
+            !isapprox(sqp.Δ, norm(sqp.p, Inf)) && 
+            !sqp.feasibility_restoration
+            sqp.ret = 0
+            break
         end
 
         do_step!(sqp)
