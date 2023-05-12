@@ -379,7 +379,7 @@ function compute_step!(sqp::AbstractSqpTrOptimizer)
     sqp.p_lambda = lambda - sqp.lambda
     sqp.p_mult_x_L = mult_x_L - sqp.mult_x_L
     sqp.p_mult_x_U = mult_x_U - sqp.mult_x_U
-    sqp.μ = max(sqp.μ, norm(sqp.lambda, Inf))
+    sqp.μ = max(sqp.μ, norm(sqp.lambda, Inf), norm(sqp.mult_x_L, Inf), norm(sqp.mult_x_U, Inf))
     @info "...found a direction"
 end
 
@@ -620,7 +620,7 @@ function print(sqp::AbstractSqpTrOptimizer, status_mark = "  ")
     @printf("  %+6.8e", sqp.f * objective_scale)
     @printf("  %+6.8e", sqp.phi)
     @printf("  %+6.8e", sqp.μ)
-    @printf("  %+6.8e", norm(sqp.lambda,Inf))
+    @printf("  %+6.8e", max(norm(sqp.lambda,Inf),norm(sqp.mult_x_L,Inf),norm(sqp.mult_x_U,Inf)))
     @printf("  %6.8e", sqp.Δ)
     @printf("  %6.8e", norm(sqp.p, Inf))
     if isinf(sqp.prim_infeas)
