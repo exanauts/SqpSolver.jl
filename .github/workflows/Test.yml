@@ -3,13 +3,13 @@ name: Run tests
 on:
   push:
     branches:
-    - master
+    - main
     paths-ignore:
     - 'README.md'
     - 'Manifest.toml'
   pull_request:
     branches:
-    - master
+    - main
 
 jobs:
   test-github-cpuonly:
