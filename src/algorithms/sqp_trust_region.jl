@@ -170,8 +170,11 @@ function run!(sqp::AbstractSqpTrOptimizer)
             end
         else
             sqp.ret == -3
-            if sqp.prim_infeas <= sqp.options.tol_infeas
+            if sqp.prim_infeas <= sqp.options.tol_infeas * 10.0
+                @info "Found a feasible solution... (status: $(sqp.sub_status))"
                 sqp.ret = 6
+            else
+                @info "Unexpected status from subproblem... (status: $(sqp.sub_status))"
             end
             break
         end
