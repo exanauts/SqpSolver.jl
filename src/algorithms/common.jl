@@ -52,7 +52,7 @@ end
 Compute the normalized constraint violation
 """
 function norm_violations(
-    E::Tv, g_L::Tv, g_U::Tv, x::Tv, x_L::Tv, x_U::Tv, p = 1
+    E::Tv, g_L::Tv, g_U::Tv, x::Tv, x_L::Tv, x_U::Tv, p = Inf
 ) where {T, Tv <: AbstractArray{T}}
 
     m = length(E)

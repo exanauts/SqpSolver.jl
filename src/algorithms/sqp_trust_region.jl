@@ -134,7 +134,7 @@ function run!(sqp::AbstractSqpTrOptimizer)
         # evaluate function, constraints, gradient, Jacobian
         if sqp.step_acceptance
             eval_functions!(sqp)
-            sqp.prim_infeas = norm_violations(sqp, 1)
+            sqp.prim_infeas = norm_violations(sqp)
             sqp.dual_infeas = KT_residuals(sqp)
             sqp.compl = norm_complementarity(sqp)
         end
