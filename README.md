@@ -1,7 +1,7 @@
 # SqpSolver.jl
 
-![Run tests](https://github.com/exanauts/SqpSolver.jl/workflows/Run%20tests/badge.svg?branch=master)
-[![codecov](https://codecov.io/gh/exanauts/SqpSolver.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/exanauts/SqpSolver.jl)
+![Run tests](https://github.com/exanauts/SqpSolver.jl/workflows/Run%20tests/badge.svg?branch=main)
+[![codecov](https://codecov.io/gh/exanauts/SqpSolver.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/exanauts/SqpSolver.jl)
 
 This is a Julia package that implements sequantial quadratic programming algorithms for continuous nonlinear optimization.
 
